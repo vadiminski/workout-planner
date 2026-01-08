@@ -73,9 +73,8 @@ const getDuration = (start, end) => {
   return `${minutes} min`;
 };
 
-// Start a specific routine (Placeholder for next step)
+// Start a specific routine
 const startRoutine = (routineId) => {
-  // We will implement this next: Passing the routineId to the workout view
   router.push({ path: "/workout", query: { routineId } });
 };
 </script>
@@ -148,15 +147,6 @@ const startRoutine = (routineId) => {
           Create your first routine
         </router-link>
       </div>
-    </section>
-
-    <section class="mb-8">
-      <router-link
-        to="/workout"
-        class="block w-full bg-green-600 hover:bg-green-500 py-4 rounded-xl font-bold text-white shadow-lg text-center text-lg"
-      >
-        Start Empty Workout
-      </router-link>
     </section>
 
     <section>

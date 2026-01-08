@@ -2,35 +2,26 @@ import Dexie from "dexie";
 
 export const db = new Dexie("WorkoutDB");
 
-db.version(2).stores({
-  // 1. The Library & Templates
-  exercises: "++id, name", // e.g., "Bench Press"
-  routines: "++id, name", // e.g., "Push Day"
+db.version(3)
+  .stores({
+    // Bumped version to 3
+    // Added 'description' to exercises
+    exercises: "++id, name, description",
 
-  // Link table: Which exercises are in which routine?
-  // We index 'routineId' to quickly load a full plan.
-  routineExercises: "++id, routineId, exerciseId",
+    routines: "++id, name",
 
-  // 2. The Logs (History)
-  // A workout session
-  workoutLogs: "++id, routineId, startTime, endTime",
+    // Added 'type' and target columns to schema definition for clarity
+    // (Dexie allows extra props, but good to document)
+    routineExercises: "++id, routineId, exerciseId, type",
 
-  // The actual sets performed
-  // We index 'workoutLogId' to load a past session
-  setLogs: "++id, workoutLogId, exerciseId",
-});
+    workoutLogs: "++id, routineId, startTime, endTime",
+    setLogs: "++id, workoutLogId, exerciseId",
+  })
+  .upgrade((tx) => {
+    // Migration logic if needed (Dexie handles adding new columns automatically)
+  });
 
-// Helper to seed default exercises if empty
+// We REMOVE the automatic seedDatabase call since you want to start empty
 export async function seedDatabase() {
-  const count = await db.exercises.count();
-  if (count === 0) {
-    await db.exercises.bulkAdd([
-      { name: "Squat" },
-      { name: "Bench Press" },
-      { name: "Deadlift" },
-      { name: "Overhead Press" },
-      { name: "Pull Up" },
-      { name: "Dumbbell Row" },
-    ]);
-  }
+  // Empty - User creates their own exercises
 }

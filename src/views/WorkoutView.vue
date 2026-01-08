@@ -8,23 +8,36 @@ const route = useRoute();
 
 // --- STATE ---
 const availableExercises = ref([]);
-const activeSession = ref([]); // The full data structure
+const activeSession = ref([]);
 const routineName = ref("");
 
-// Focus Mode State
+// Focus Mode
 const currentExIndex = ref(0);
 const currentSetIndex = ref(0);
-const viewState = ref("loading"); // 'loading', 'active', 'resting', 'summary'
+const viewState = ref("loading");
 
-// Timer State
-const timerSeconds = ref(90); // Default rest time
-const remainingTime = ref(90);
-let timerInterval = null;
+// Timers
+const restTimerSeconds = ref(90);
+const restRemaining = ref(90);
+let restInterval = null;
+
+// ACTIVE Timer (For time-based exercises)
+const activeTimerSeconds = ref(0);
+let activeInterval = null;
+const isActiveTimerRunning = ref(false);
+
+// --- HELPER: Parse mm:ss to seconds ---
+const parseTimeToSeconds = (timeStr) => {
+  if (!timeStr || !timeStr.includes(":")) return 90;
+  const [m, s] = timeStr.split(":").map(Number);
+  return m * 60 + s;
+};
 
 // --- COMPUTED HELPERS ---
 const currentExercise = computed(
   () => activeSession.value[currentExIndex.value]
 );
+
 const currentSet = computed(() => {
   if (!currentExercise.value) return null;
   return currentExercise.value.sets[currentSetIndex.value];
@@ -42,10 +55,33 @@ const isLastSetOfWorkout = computed(() => {
   );
 });
 
+// VALIDATION LOGIC
+const isCurrentSetValid = computed(() => {
+  if (!currentSet.value) return false;
+  const s = currentSet.value;
+  const isWeightValid = s.weight !== null && s.weight !== "";
+  let isValValid = false;
+
+  if (s.type === "time") {
+    isValValid = /^\d{1,2}:\d{2}$/.test(s.val);
+  } else {
+    isValValid = s.val !== null && s.val !== "" && s.val > 0;
+  }
+  return isWeightValid && isValValid;
+});
+
+// Formatted Active Timer
+const formattedActiveTimer = computed(() => {
+  const m = Math.floor(activeTimerSeconds.value / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = (activeTimerSeconds.value % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+});
+
 // --- LIFECYCLE ---
 onMounted(async () => {
   availableExercises.value = await db.exercises.toArray();
-
   if (route.query.routineId) {
     await loadRoutineWithHistory(parseInt(route.query.routineId));
   } else {
@@ -54,7 +90,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  stopTimer();
+  stopRestTimer();
+  stopActiveTimer();
 });
 
 // --- DATA LOADING ---
@@ -87,45 +124,125 @@ const loadRoutineWithHistory = async (routineId) => {
       .filter((s) => s.exerciseId === ex.id)
       .sort((a, b) => a.setNumber - b.setNumber);
 
-    const setsCount = prevSets.length > 0 ? prevSets.length : 3;
+    const targetSetsCount = link.targetSets || 3;
 
-    const currentSets = Array.from({ length: setsCount }).map((_, i) => {
-      const prev = prevSets[i] || {};
+    const currentSets = Array.from({ length: targetSetsCount }).map((_, i) => {
+      const history = prevSets[i];
+      const pWeight = history ? history.weight : link.targetWeight;
+      const pVal = history ? history.reps : link.targetVal;
+
+      // PREFILL LOGIC:
+      // Reps: Weight starts empty (null)
+      // Time: Weight starts prefilled (History > Target > 0)
+      let initialWeight = null;
+      if (link.type === "time") {
+        if (pWeight !== undefined) initialWeight = pWeight;
+        else if (link.targetWeight !== undefined)
+          initialWeight = link.targetWeight;
+        else initialWeight = 0;
+      }
+
       return {
-        prevWeight: prev.weight || "-",
-        prevReps: prev.reps || "-",
-        prevRpe: prev.rpe || "-",
-        weight: null,
-        reps: null,
+        // Display Data
+        lastWeight: pWeight !== undefined ? pWeight : "-",
+        lastVal: pVal !== undefined ? pVal : "-",
+        targetWeight: link.targetWeight,
+        targetVal: link.targetVal,
+
+        // Inputs
+        weight: initialWeight, // <--- PREFILL APPLIED HERE
+        val: null,
         rpe: null,
         notes: "",
+        type: link.type || "reps",
       };
     });
 
-    return { exerciseId: ex.id, name: ex.name, sets: currentSets };
+    return {
+      exerciseId: ex.id,
+      name: ex.name,
+      sets: currentSets,
+      type: link.type || "reps",
+      restTimeStr: link.targetRest || "01:30",
+    };
   });
 
-  viewState.value = "active"; // Start the workout
+  viewState.value = "active";
+  initActiveSet(); // <--- Auto-start timer if needed on load
 };
 
-// --- ACTIONS ---
+// --- INPUT HANDLERS ---
+const validateRpe = () => {
+  if (currentSet.value.rpe > 10) currentSet.value.rpe = 10;
+  if (currentSet.value.rpe < 0) currentSet.value.rpe = 0;
+};
 
+const validateTimeInput = (event) => {
+  let val = event.target.value;
+  val = val.replace(/[^0-9:]/g, "");
+  if (val.length > 5) val = val.slice(0, 5);
+  currentSet.value.val = val;
+};
+
+// --- ACTIVE TIMER LOGIC ---
+const startActiveTimer = () => {
+  if (isActiveTimerRunning.value) return; // Already running
+  isActiveTimerRunning.value = true;
+  activeInterval = setInterval(() => {
+    activeTimerSeconds.value++;
+  }, 1000);
+};
+
+const stopActiveTimer = () => {
+  if (activeInterval) clearInterval(activeInterval);
+  isActiveTimerRunning.value = false;
+  // Auto-fill input if currently empty
+  if (currentSet.value && !currentSet.value.val) {
+    currentSet.value.val = formattedActiveTimer.value;
+  }
+};
+
+const toggleActiveTimer = () => {
+  if (isActiveTimerRunning.value) stopActiveTimer();
+  else startActiveTimer();
+};
+
+const resetActiveTimer = () => {
+  if (activeInterval) clearInterval(activeInterval);
+  isActiveTimerRunning.value = false;
+  activeTimerSeconds.value = 0;
+};
+
+// Helper to handle auto-start logic
+const initActiveSet = () => {
+  // Always reset timer state for new set
+  resetActiveTimer();
+
+  // If Time-based, auto start
+  if (currentSet.value && currentSet.value.type === "time") {
+    startActiveTimer();
+  }
+};
+
+// --- NAVIGATION ---
 const finishSet = () => {
-  // Logic Fix: Check if this is the last set of the entire workout
+  stopActiveTimer(); // Stops and fills value
+  activeTimerSeconds.value = 0;
+
   if (isLastSetOfWorkout.value) {
-    // Skip timer, go straight to summary
     viewState.value = "summary";
   } else {
-    // Otherwise, start the rest timer
+    // Start Rest
+    const restStr = currentExercise.value.restTimeStr;
+    const seconds = parseTimeToSeconds(restStr);
+    restTimerSeconds.value = seconds;
+    startRestTimer();
     viewState.value = "resting";
-    startTimer();
   }
 };
 
 const nextStep = () => {
-  stopTimer();
-
-  // Advance indices
+  stopRestTimer();
   if (isLastSetOfExercise.value) {
     currentExIndex.value++;
     currentSetIndex.value = 0;
@@ -133,30 +250,28 @@ const nextStep = () => {
     currentSetIndex.value++;
   }
 
-  // Back to work
   viewState.value = "active";
+  initActiveSet(); // <--- Auto-start timer if needed for next set
 };
 
-// --- TIMER LOGIC ---
-const startTimer = () => {
-  remainingTime.value = timerSeconds.value;
-  timerInterval = setInterval(() => {
-    remainingTime.value--;
-    if (remainingTime.value <= 0) {
-      nextStep(); // Auto-advance when timer hits 0
+// --- REST TIMER ---
+const startRestTimer = () => {
+  restRemaining.value = restTimerSeconds.value;
+  restInterval = setInterval(() => {
+    restRemaining.value--;
+    if (restRemaining.value <= 0) {
+      nextStep();
     }
   }, 1000);
 };
 
-const stopTimer = () => {
-  if (timerInterval) clearInterval(timerInterval);
+const stopRestTimer = () => {
+  if (restInterval) clearInterval(restInterval);
 };
 
-const adjustTimer = (seconds) => {
-  remainingTime.value += seconds;
-};
+const adjustRestTimer = (s) => (restRemaining.value += s);
 
-// --- FINAL SAVE ---
+// --- SAVE ---
 const saveAndExit = async () => {
   const workoutId = await db.workoutLogs.add({
     startTime: new Date(),
@@ -165,33 +280,24 @@ const saveAndExit = async () => {
   });
 
   const setsToSave = [];
+
   activeSession.value.forEach((exercise) => {
     exercise.sets.forEach((set, index) => {
-      // 1. RESOLVE VALUES: Use Input -> Fallback to Previous -> Fallback to 0
       const finalWeight =
-        set.weight !== null && set.weight !== ""
-          ? set.weight
-          : set.prevWeight !== "-"
-          ? set.prevWeight
+        set.weight !== null && set.weight !== "" ? parseFloat(set.weight) : 0;
+      let finalVal =
+        set.val !== null && set.val !== ""
+          ? set.val
+          : set.type === "time"
+          ? "00:00"
           : 0;
-
-      const finalReps =
-        set.reps !== null && set.reps !== ""
-          ? set.reps
-          : set.prevReps !== "-"
-          ? set.prevReps
-          : 0;
-
       const finalRpe =
-        set.rpe !== null && set.rpe !== ""
-          ? set.rpe
-          : set.prevRpe !== "-"
-          ? set.prevRpe
-          : 0;
+        set.rpe !== null && set.rpe !== "" ? parseFloat(set.rpe) : 0;
 
-      // 2. CHECK: Only save if we actually have data (or notes)
-      // This ensures we don't save completely empty "ghost" sets if you added extras and didn't do them
-      const hasData = finalWeight > 0 || finalReps > 0 || set.notes;
+      if (set.type === "reps") finalVal = parseInt(finalVal) || 0;
+      const hasData =
+        finalWeight > 0 ||
+        (set.type === "reps" ? finalVal > 0 : finalVal !== "00:00");
 
       if (hasData) {
         setsToSave.push({
@@ -199,7 +305,7 @@ const saveAndExit = async () => {
           exerciseId: exercise.exerciseId,
           setNumber: index + 1,
           weight: finalWeight,
-          reps: finalReps,
+          reps: finalVal,
           rpe: finalRpe,
           notes: set.notes || "",
         });
@@ -223,33 +329,73 @@ const saveAndExit = async () => {
       </button>
     </div>
 
-    <div
-      v-if="viewState === 'loading'"
-      class="flex-1 flex items-center justify-center"
-    >
-      Loading...
-    </div>
-
-    <div v-else-if="viewState === 'active'" class="flex-1 flex flex-col p-6">
+    <div v-if="viewState === 'active'" class="flex-1 flex flex-col p-6">
       <div
-        class="text-center text-slate-500 text-xs mb-6 font-mono tracking-widest uppercase"
+        class="text-center text-slate-500 text-xs mb-4 font-mono uppercase tracking-widest"
       >
-        Ex {{ currentExIndex + 1 }}/{{ activeSession.length }} • Set
-        {{ currentSetIndex + 1 }}/{{ currentExercise.sets.length }}
+        Set {{ currentSetIndex + 1 }} of {{ currentExercise.sets.length }}
       </div>
 
-      <h2 class="text-3xl font-bold text-center text-blue-300 mb-8">
+      <h2 class="text-3xl font-bold text-center text-blue-300 mb-2">
         {{ currentExercise.name }}
       </h2>
+      <div class="text-center mb-6">
+        <span
+          class="bg-slate-800 text-xs px-2 py-1 rounded text-slate-400 uppercase font-bold border border-slate-700"
+        >
+          {{ currentSet.type === "time" ? "Duration" : "Reps" }} Based
+        </span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div
+          class="bg-slate-800/50 p-3 rounded-lg text-center border border-slate-700"
+        >
+          <div class="text-xs text-slate-400 uppercase mb-1">Target</div>
+          <div class="text-lg font-mono text-slate-200">
+            {{ currentSet.targetWeight
+            }}<span class="text-xs text-slate-500">kg</span>
+            <span class="mx-1 text-slate-600">|</span>
+            {{ currentSet.targetVal }}
+          </div>
+        </div>
+        <div
+          class="bg-slate-800/50 p-3 rounded-lg text-center border border-slate-700"
+        >
+          <div class="text-xs text-slate-400 uppercase mb-1">Last</div>
+          <div class="text-lg font-mono text-slate-200">
+            {{ currentSet.lastWeight
+            }}<span class="text-xs text-slate-500">kg</span>
+            <span class="mx-1 text-slate-600">|</span>
+            {{ currentSet.lastVal }}
+          </div>
+        </div>
+      </div>
 
       <div
-        class="bg-slate-800/50 p-4 rounded-lg text-center mb-8 border border-slate-700"
+        v-if="currentSet.type === 'time'"
+        class="mb-6 bg-slate-800 rounded-xl p-4 border border-slate-700 text-center"
       >
-        <div class="text-xs text-slate-400 uppercase mb-1">Last Time</div>
-        <div class="text-xl font-mono text-slate-200">
-          {{ currentSet.prevWeight }}<span class="text-sm">kg</span>
-          <span class="mx-2 text-slate-600">x</span>
-          {{ currentSet.prevReps }}<span class="text-sm">reps</span>
+        <div
+          class="text-5xl font-mono font-bold mb-4"
+          :class="isActiveTimerRunning ? 'text-green-400' : 'text-slate-500'"
+        >
+          {{ formattedActiveTimer }}
+        </div>
+        <div class="flex justify-center gap-4">
+          <button
+            @click="toggleActiveTimer"
+            class="px-6 py-2 rounded font-bold text-slate-900"
+            :class="isActiveTimerRunning ? 'bg-yellow-500' : 'bg-green-500'"
+          >
+            {{ isActiveTimerRunning ? "Pause" : "Start Timer" }}
+          </button>
+          <button
+            @click="resetActiveTimer"
+            class="px-4 py-2 rounded bg-slate-700 text-slate-300"
+          >
+            Reset
+          </button>
         </div>
       </div>
 
@@ -262,24 +408,31 @@ const saveAndExit = async () => {
             <input
               type="number"
               v-model="currentSet.weight"
-              :placeholder="
-                currentSet.prevWeight !== '-' ? currentSet.prevWeight : '0'
-              "
-              class="w-full bg-slate-800 text-white text-3xl p-4 rounded-xl text-center focus:ring-2 focus:ring-blue-500 outline-none"
-              autofocus
+              placeholder="0"
+              class="w-full bg-slate-800 text-white text-3xl p-4 rounded-xl text-center outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
             />
           </div>
+
           <div>
-            <label class="block text-sm text-slate-400 mb-2 text-center"
-              >Reps</label
-            >
+            <label class="block text-sm text-slate-400 mb-2 text-center">
+              {{ currentSet.type === "time" ? "Time (mm:ss)" : "Reps" }}
+            </label>
             <input
+              v-if="currentSet.type === 'time'"
+              type="text"
+              inputmode="numeric"
+              v-model="currentSet.val"
+              @input="validateTimeInput"
+              placeholder="00:00"
+              class="w-full bg-slate-800 text-white text-3xl p-4 rounded-xl text-center outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
+            />
+            <input
+              v-else
               type="number"
-              v-model="currentSet.reps"
-              :placeholder="
-                currentSet.prevReps !== '-' ? currentSet.prevReps : '0'
-              "
-              class="w-full bg-slate-800 text-white text-3xl p-4 rounded-xl text-center focus:ring-2 focus:ring-blue-500 outline-none"
+              min="0"
+              v-model="currentSet.val"
+              placeholder="0"
+              class="w-full bg-slate-800 text-white text-3xl p-4 rounded-xl text-center outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
             />
           </div>
         </div>
@@ -287,11 +440,12 @@ const saveAndExit = async () => {
         <div class="grid grid-cols-3 gap-4">
           <div class="col-span-1">
             <label class="block text-xs text-slate-400 mb-1 text-center"
-              >RPE</label
+              >RPE (0-10)</label
             >
             <input
               type="number"
               v-model="currentSet.rpe"
+              @input="validateRpe"
               class="w-full bg-slate-800 text-yellow-400 text-xl p-3 rounded-lg text-center outline-none"
               placeholder="-"
             />
@@ -302,7 +456,7 @@ const saveAndExit = async () => {
               type="text"
               v-model="currentSet.notes"
               class="w-full bg-slate-800 text-slate-300 text-sm p-3.5 rounded-lg outline-none"
-              placeholder="How did it feel?"
+              placeholder="Notes..."
             />
           </div>
         </div>
@@ -311,8 +465,15 @@ const saveAndExit = async () => {
       <div class="mt-auto pt-6">
         <button
           @click="finishSet"
-          class="w-full py-5 rounded-2xl font-bold text-white text-xl shadow-lg transition-transform active:scale-95"
-          :class="isLastSetOfWorkout ? 'bg-green-600' : 'bg-blue-600'"
+          :disabled="!isCurrentSetValid"
+          class="w-full py-5 rounded-2xl font-bold text-xl shadow-lg active:scale-95 transition-all"
+          :class="
+            !isCurrentSetValid
+              ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+              : isLastSetOfWorkout
+              ? 'bg-green-600 text-white'
+              : 'bg-blue-600 text-white'
+          "
         >
           {{ isLastSetOfWorkout ? "Finish Workout" : "Done & Rest" }}
         </button>
@@ -323,57 +484,39 @@ const saveAndExit = async () => {
       v-else-if="viewState === 'resting'"
       class="flex-1 bg-black/90 absolute inset-0 z-50 flex flex-col items-center justify-center"
     >
-      <div class="text-slate-400 text-sm uppercase tracking-widest mb-4">
-        Resting
-      </div>
-
+      <div class="text-slate-400 uppercase tracking-widest mb-4">Resting</div>
       <div class="text-8xl font-mono font-bold text-white mb-8 tabular-nums">
-        {{ Math.floor(remainingTime / 60) }}:{{
-          (remainingTime % 60).toString().padStart(2, "0")
+        {{ Math.floor(restRemaining / 60) }}:{{
+          (restRemaining % 60).toString().padStart(2, "0")
         }}
       </div>
-
       <div class="flex gap-4 mb-12">
         <button
-          @click="adjustTimer(-10)"
+          @click="adjustRestTimer(-10)"
           class="px-4 py-2 bg-slate-800 rounded-full text-slate-300"
         >
           -10s
         </button>
         <button
-          @click="adjustTimer(30)"
+          @click="adjustRestTimer(30)"
           class="px-4 py-2 bg-slate-800 rounded-full text-slate-300"
         >
           +30s
         </button>
       </div>
-
       <button
         @click="nextStep"
-        class="bg-green-600 px-12 py-4 rounded-full font-bold text-white text-lg shadow-lg hover:bg-green-500 transition-colors"
+        class="bg-green-600 px-12 py-4 rounded-full font-bold text-white text-lg shadow-lg"
       >
         Start Next Set
       </button>
-
-      <div class="mt-12 text-center opacity-50">
-        <div class="text-xs uppercase">Up Next</div>
-        <div class="font-bold text-blue-300">
-          {{
-            isLastSetOfExercise ? "Next Exercise" : `Set ${currentSetIndex + 2}`
-          }}
-        </div>
-      </div>
     </div>
 
     <div
       v-else-if="viewState === 'summary'"
       class="flex-1 flex flex-col p-4 overflow-y-auto"
     >
-      <h2 class="text-2xl font-bold text-white mb-4">Workout Summary</h2>
-      <p class="text-slate-400 mb-6">
-        Great job! Review your numbers before saving.
-      </p>
-
+      <h2 class="text-2xl font-bold text-white mb-4">Summary</h2>
       <div class="space-y-4 mb-20">
         <div
           v-for="ex in activeSession"
@@ -384,25 +527,15 @@ const saveAndExit = async () => {
           <div
             v-for="(s, i) in ex.sets"
             :key="i"
-            class="flex justify-between text-sm py-1 border-b border-slate-700/50 last:border-0"
+            class="flex justify-between text-sm py-1 border-b border-slate-700/50"
           >
             <span class="text-slate-400">Set {{ i + 1 }}</span>
             <span class="text-white font-mono">
-              {{
-                s.weight !== null
-                  ? s.weight
-                  : s.prevWeight !== "-"
-                  ? s.prevWeight
-                  : 0
-              }}kg x
-              {{
-                s.reps !== null ? s.reps : s.prevReps !== "-" ? s.prevReps : 0
-              }}
+              {{ s.weight || 0 }}kg x {{ s.val }}
             </span>
           </div>
         </div>
       </div>
-
       <button
         @click="saveAndExit"
         class="fixed bottom-4 left-4 right-4 bg-green-600 py-4 rounded-xl font-bold text-white text-lg shadow-lg"
@@ -410,5 +543,7 @@ const saveAndExit = async () => {
         Save & Finish
       </button>
     </div>
+
+    <div v-else class="flex-1 flex items-center justify-center">Loading...</div>
   </div>
 </template>
