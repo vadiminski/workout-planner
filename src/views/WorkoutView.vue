@@ -28,7 +28,10 @@ const isActiveTimerRunning = ref(false);
 
 // --- HELPER: Parse mm:ss to seconds ---
 const parseTimeToSeconds = (timeStr) => {
-  if (!timeStr || !timeStr.includes(":")) return 90;
+  if (!timeStr) return 60;
+  if (typeof timeStr === "number") return timeStr;
+  if (!timeStr.includes(":")) return parseInt(timeStr) || 60;
+
   const [m, s] = timeStr.split(":").map(Number);
   return m * 60 + s;
 };
@@ -120,6 +123,7 @@ const loadRoutineWithHistory = async (routineId) => {
 
   activeSession.value = templateLinks.map((link) => {
     const ex = availableExercises.value.find((e) => e.id === link.exerciseId);
+
     const prevSets = historySets
       .filter((s) => s.exerciseId === ex.id)
       .sort((a, b) => a.setNumber - b.setNumber);
@@ -131,27 +135,27 @@ const loadRoutineWithHistory = async (routineId) => {
       const pWeight = history ? history.weight : link.targetWeight;
       const pVal = history ? history.reps : link.targetVal;
 
-      // PREFILL LOGIC:
-      // Reps: Weight starts empty (null)
-      // Time: Weight starts prefilled (History > Target > 0)
       let initialWeight = null;
+      let initialVal = null;
+
       if (link.type === "time") {
         if (pWeight !== undefined) initialWeight = pWeight;
         else if (link.targetWeight !== undefined)
           initialWeight = link.targetWeight;
         else initialWeight = 0;
+
+        if (pVal !== undefined && pVal !== "-") initialVal = pVal;
+        else if (link.targetVal) initialVal = link.targetVal;
+        else initialVal = "01:00";
       }
 
       return {
-        // Display Data
         lastWeight: pWeight !== undefined ? pWeight : "-",
         lastVal: pVal !== undefined ? pVal : "-",
         targetWeight: link.targetWeight,
         targetVal: link.targetVal,
-
-        // Inputs
-        weight: initialWeight, // <--- PREFILL APPLIED HERE
-        val: null,
+        weight: initialWeight,
+        val: initialVal,
         rpe: null,
         notes: "",
         type: link.type || "reps",
@@ -168,7 +172,7 @@ const loadRoutineWithHistory = async (routineId) => {
   });
 
   viewState.value = "active";
-  initActiveSet(); // <--- Auto-start timer if needed on load
+  initActiveSet();
 };
 
 // --- INPUT HANDLERS ---
@@ -184,21 +188,29 @@ const validateTimeInput = (event) => {
   currentSet.value.val = val;
 };
 
-// --- ACTIVE TIMER LOGIC ---
+// --- ACTIVE TIMER LOGIC (COUNTDOWN) ---
 const startActiveTimer = () => {
-  if (isActiveTimerRunning.value) return; // Already running
+  if (isActiveTimerRunning.value) return;
   isActiveTimerRunning.value = true;
+
   activeInterval = setInterval(() => {
-    activeTimerSeconds.value++;
+    if (activeTimerSeconds.value > 0) {
+      activeTimerSeconds.value--; // Countdown
+    } else {
+      // AUTO-FINISH LOGIC:
+      // When timer hits 0, behave exactly as if "Done & Rest" was clicked.
+      finishSet();
+    }
   }, 1000);
 };
 
 const stopActiveTimer = () => {
   if (activeInterval) clearInterval(activeInterval);
   isActiveTimerRunning.value = false;
-  // Auto-fill input if currently empty
+
+  // Auto-fill input with TARGET value
   if (currentSet.value && !currentSet.value.val) {
-    currentSet.value.val = formattedActiveTimer.value;
+    currentSet.value.val = currentSet.value.targetVal || "01:00";
   }
 };
 
@@ -210,15 +222,18 @@ const toggleActiveTimer = () => {
 const resetActiveTimer = () => {
   if (activeInterval) clearInterval(activeInterval);
   isActiveTimerRunning.value = false;
-  activeTimerSeconds.value = 0;
+
+  // Initialize from TARGET VAL
+  if (currentSet.value && currentSet.value.type === "time") {
+    const target = currentSet.value.targetVal || "01:00";
+    activeTimerSeconds.value = parseTimeToSeconds(target);
+  } else {
+    activeTimerSeconds.value = 0;
+  }
 };
 
-// Helper to handle auto-start logic
 const initActiveSet = () => {
-  // Always reset timer state for new set
-  resetActiveTimer();
-
-  // If Time-based, auto start
+  resetActiveTimer(); // Sets timer to Target
   if (currentSet.value && currentSet.value.type === "time") {
     startActiveTimer();
   }
@@ -226,7 +241,15 @@ const initActiveSet = () => {
 
 // --- NAVIGATION ---
 const finishSet = () => {
-  stopActiveTimer(); // Stops and fills value
+  // IMPORTANT: Stop the active timer interval immediately
+  if (activeInterval) clearInterval(activeInterval);
+  isActiveTimerRunning.value = false;
+
+  // Ensure the input field has the correct value before we leave
+  if (currentSet.value && !currentSet.value.val) {
+    currentSet.value.val = currentSet.value.targetVal || "01:00";
+  }
+
   activeTimerSeconds.value = 0;
 
   if (isLastSetOfWorkout.value) {
@@ -251,7 +274,7 @@ const nextStep = () => {
   }
 
   viewState.value = "active";
-  initActiveSet(); // <--- Auto-start timer if needed for next set
+  initActiveSet(); // Auto-start next timer
 };
 
 // --- REST TIMER ---
