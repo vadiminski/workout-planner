@@ -167,7 +167,8 @@ const startRoutine = (routineId) => {
         <div
           v-for="item in history"
           :key="item.id"
-          class="bg-slate-800 p-4 rounded-xl border border-slate-700"
+          @click="router.push(`/history/${item.id}`)"
+          class="bg-slate-800 p-4 rounded-xl border border-slate-700 cursor-pointer hover:bg-slate-750 active:bg-slate-700 transition-colors"
         >
           <div class="flex justify-between items-start mb-1">
             <span class="font-bold text-white">{{ item.displayDate }}</span>

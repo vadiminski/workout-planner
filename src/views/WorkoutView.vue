@@ -10,6 +10,7 @@ const route = useRoute();
 const availableExercises = ref([]);
 const activeSession = ref([]);
 const routineName = ref("");
+const editingExerciseId = ref(null); // Tracks which summary card is in edit mode
 
 // Focus Mode
 const currentExIndex = ref(0);
@@ -188,14 +189,14 @@ const validateTimeInput = (event) => {
   currentSet.value.val = val;
 };
 
-// --- ACTIVE TIMER LOGIC (COUNTDOWN) ---
+// --- ACTIVE TIMER LOGIC ---
 const startActiveTimer = () => {
   if (isActiveTimerRunning.value) return;
   isActiveTimerRunning.value = true;
 
   activeInterval = setInterval(() => {
     if (activeTimerSeconds.value > 0) {
-      activeTimerSeconds.value--; // Countdown
+      activeTimerSeconds.value--;
     } else {
       finishSet();
     }
@@ -497,7 +498,7 @@ const saveAndExit = async () => {
 
     <div
       v-else-if="viewState === 'resting'"
-      class="flex-1 bg-black/90 absolute inset-0 z-50 flex flex-col items-center justify-center"
+      class="flex-1 bg-black/90 absolute inset-0 z-50 flex flex-col items-center justify-center p-6"
     >
       <div class="text-slate-400 uppercase tracking-widest mb-4">Resting</div>
       <div class="text-8xl font-mono font-bold text-white mb-8 tabular-nums">
@@ -505,7 +506,7 @@ const saveAndExit = async () => {
           (restRemaining % 60).toString().padStart(2, "0")
         }}
       </div>
-      <div class="flex gap-4 mb-12">
+      <div class="flex gap-4 mb-8">
         <button
           @click="adjustRestTimer(-10)"
           class="px-4 py-2 bg-slate-800 rounded-full text-slate-300"
@@ -519,6 +520,16 @@ const saveAndExit = async () => {
           +30s
         </button>
       </div>
+
+      <div class="w-full max-w-xs mb-8">
+        <input
+          type="text"
+          v-model="currentSet.notes"
+          placeholder="Add notes for this set..."
+          class="w-full bg-transparent border-b border-slate-600 text-center text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 py-2 transition-colors"
+        />
+      </div>
+
       <button
         @click="nextStep"
         class="bg-green-600 px-12 py-4 rounded-full font-bold text-white text-lg shadow-lg"
@@ -532,54 +543,116 @@ const saveAndExit = async () => {
       class="flex-1 flex flex-col p-4 overflow-y-auto"
     >
       <h2 class="text-2xl font-bold text-white mb-4">Summary</h2>
-      <p class="text-sm text-slate-400 mb-6">
-        Review & edit your workout before saving.
-      </p>
 
       <div class="space-y-4 mb-20">
         <div
           v-for="ex in activeSession"
           :key="ex.exerciseId"
-          class="bg-slate-800 p-4 rounded-lg"
+          class="bg-slate-800 p-4 rounded-lg border border-slate-700 transition-all duration-200"
+          :class="
+            editingExerciseId === ex.exerciseId
+              ? 'ring-2 ring-blue-500 bg-slate-800'
+              : 'cursor-pointer hover:bg-slate-750'
+          "
+          @click="
+            editingExerciseId !== ex.exerciseId
+              ? (editingExerciseId = ex.exerciseId)
+              : null
+          "
         >
-          <h3 class="font-bold text-blue-300 mb-2">{{ ex.name }}</h3>
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="font-bold text-blue-300">{{ ex.name }}</h3>
+            <span
+              v-if="editingExerciseId !== ex.exerciseId"
+              class="text-xs text-slate-500 uppercase tracking-wide"
+              >Edit</span
+            >
+            <button
+              v-else
+              @click.stop="editingExerciseId = null"
+              class="text-green-400 text-xs font-bold uppercase bg-green-900/30 px-3 py-1 rounded"
+            >
+              Done
+            </button>
+          </div>
 
-          <div
-            v-for="(s, i) in ex.sets"
-            :key="i"
-            class="flex items-center gap-2 py-2 border-b border-slate-700/50 last:border-0"
-          >
-            <span class="text-slate-400 text-sm w-8">#{{ i + 1 }}</span>
-
-            <div class="flex-1 flex items-center bg-slate-900 rounded px-2">
-              <input
-                type="number"
-                v-model="s.weight"
-                class="w-full bg-transparent text-white text-right p-1 outline-none font-mono"
-                placeholder="0"
-              />
-              <span class="text-slate-500 text-xs ml-1">kg</span>
+          <div v-if="editingExerciseId !== ex.exerciseId" class="space-y-3">
+            <div
+              v-for="(s, i) in ex.sets"
+              :key="i"
+              class="border-b border-slate-700/50 last:border-0 pb-1"
+            >
+              <div class="flex justify-between text-sm">
+                <span class="text-slate-500">Set {{ i + 1 }}</span>
+                <span class="text-white font-mono">
+                  {{ s.weight || 0 }}kg x {{ s.val }}
+                </span>
+              </div>
+              <div v-if="s.notes" class="text-xs text-slate-400 italic mt-1">
+                📝 {{ s.notes }}
+              </div>
             </div>
+          </div>
 
-            <div class="flex-1 flex items-center bg-slate-900 rounded px-2">
+          <div v-else class="space-y-4">
+            <div
+              v-for="(s, i) in ex.sets"
+              :key="i"
+              class="bg-slate-900/50 p-2 rounded border border-slate-700"
+            >
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-slate-500 text-xs w-6 pt-2"
+                  >#{{ i + 1 }}</span
+                >
+
+                <div class="flex-1">
+                  <label class="text-[10px] text-slate-500 uppercase"
+                    >Weight</label
+                  >
+                  <div
+                    class="flex items-center bg-slate-900 rounded border border-slate-600 px-2"
+                  >
+                    <input
+                      type="number"
+                      v-model="s.weight"
+                      class="w-full bg-transparent text-white text-right p-2 outline-none font-mono text-sm"
+                      placeholder="0"
+                    />
+                    <span class="text-slate-500 text-xs ml-1">kg</span>
+                  </div>
+                </div>
+
+                <div class="flex-1">
+                  <label class="text-[10px] text-slate-500 uppercase">{{
+                    s.type === "time" ? "Time" : "Reps"
+                  }}</label>
+                  <div
+                    class="flex items-center bg-slate-900 rounded border border-slate-600 px-2"
+                  >
+                    <input
+                      v-if="s.type === 'time'"
+                      type="text"
+                      v-model="s.val"
+                      class="w-full bg-transparent text-white text-right p-2 outline-none font-mono text-sm"
+                      placeholder="00:00"
+                    />
+                    <input
+                      v-else
+                      type="number"
+                      v-model="s.val"
+                      class="w-full bg-transparent text-white text-right p-2 outline-none font-mono text-sm"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <input
-                v-if="s.type === 'time'"
                 type="text"
-                v-model="s.val"
-                class="w-full bg-transparent text-white text-right p-1 outline-none font-mono"
-                placeholder="00:00"
+                v-model="s.notes"
+                placeholder="Add notes..."
+                class="w-full bg-transparent border-b border-slate-700 text-xs text-slate-300 p-1 focus:border-blue-500 outline-none"
               />
-              <input
-                v-else
-                type="number"
-                v-model="s.val"
-                class="w-full bg-transparent text-white text-right p-1 outline-none font-mono"
-                placeholder="0"
-              />
-
-              <span class="text-slate-500 text-xs ml-1">{{
-                s.type === "time" ? "" : "reps"
-              }}</span>
             </div>
           </div>
         </div>
