@@ -10,7 +10,7 @@ const route = useRoute();
 const availableExercises = ref([]);
 const activeSession = ref([]);
 const routineName = ref("");
-const editingExerciseId = ref(null); // Tracks which summary card is in edit mode
+const editingExerciseId = ref(null);
 
 // Focus Mode
 const currentExIndex = ref(0);
@@ -27,12 +27,16 @@ const activeTimerSeconds = ref(0);
 let activeInterval = null;
 const isActiveTimerRunning = ref(false);
 
+// PREP Timer (10s countdown before first time-based exercise)
+const prepTimerSeconds = ref(10);
+const isPrepTimerRunning = ref(false);
+let prepInterval = null;
+
 // --- HELPER: Parse mm:ss to seconds ---
 const parseTimeToSeconds = (timeStr) => {
   if (!timeStr) return 60;
   if (typeof timeStr === "number") return timeStr;
   if (!timeStr.includes(":")) return parseInt(timeStr) || 60;
-
   const [m, s] = timeStr.split(":").map(Number);
   return m * 60 + s;
 };
@@ -57,6 +61,34 @@ const isLastSetOfWorkout = computed(() => {
     currentExIndex.value === activeSession.value.length - 1 &&
     isLastSetOfExercise.value
   );
+});
+
+// "UP NEXT" Logic for Rest Screen
+const nextStepInfo = computed(() => {
+  // If we are currently resting, we need to know what comes *after* this rest.
+
+  // Case 1: More sets in current exercise
+  if (!isLastSetOfExercise.value) {
+    return {
+      type: "Set",
+      text: `Set ${currentSetIndex.value + 2} of ${
+        currentExercise.value.sets.length
+      }`,
+      subtext: currentExercise.value.name,
+    };
+  }
+
+  // Case 2: Next Exercise
+  if (currentExIndex.value < activeSession.value.length - 1) {
+    const nextEx = activeSession.value[currentExIndex.value + 1];
+    return {
+      type: "Exercise",
+      text: nextEx.name,
+      subtext: "Set 1",
+    };
+  }
+
+  return null; // Should not happen if isLastSetOfWorkout is handled correctly
 });
 
 // VALIDATION LOGIC
@@ -96,6 +128,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopRestTimer();
   stopActiveTimer();
+  stopPrepTimer();
 });
 
 // --- DATA LOADING ---
@@ -173,7 +206,9 @@ const loadRoutineWithHistory = async (routineId) => {
   });
 
   viewState.value = "active";
-  initActiveSet();
+
+  // Trigger prep logic for first exercise
+  initActiveSet(true);
 };
 
 // --- INPUT HANDLERS ---
@@ -187,6 +222,31 @@ const validateTimeInput = (event) => {
   val = val.replace(/[^0-9:]/g, "");
   if (val.length > 5) val = val.slice(0, 5);
   currentSet.value.val = val;
+};
+
+// --- PREP TIMER LOGIC ---
+const startPrepTimer = () => {
+  isPrepTimerRunning.value = true;
+  prepTimerSeconds.value = 10;
+
+  prepInterval = setInterval(() => {
+    prepTimerSeconds.value--;
+    if (prepTimerSeconds.value <= 0) {
+      stopPrepTimer();
+      // Prep done -> Start the actual exercise timer
+      startActiveTimer();
+    }
+  }, 1000);
+};
+
+const stopPrepTimer = () => {
+  if (prepInterval) clearInterval(prepInterval);
+  isPrepTimerRunning.value = false;
+};
+
+const skipPrep = () => {
+  stopPrepTimer();
+  startActiveTimer();
 };
 
 // --- ACTIVE TIMER LOGIC ---
@@ -229,10 +289,21 @@ const resetActiveTimer = () => {
   }
 };
 
-const initActiveSet = () => {
+const initActiveSet = (isFirstLoad = false) => {
   resetActiveTimer();
+
   if (currentSet.value && currentSet.value.type === "time") {
-    startActiveTimer();
+    // If it's the very first exercise of the routine, show Prep Timer
+    if (
+      isFirstLoad &&
+      currentExIndex.value === 0 &&
+      currentSetIndex.value === 0
+    ) {
+      startPrepTimer();
+    } else {
+      // Otherwise (mid-workout), just start the exercise timer (user just finished resting)
+      startActiveTimer();
+    }
   }
 };
 
@@ -336,7 +407,25 @@ const saveAndExit = async () => {
 </script>
 
 <template>
-  <div class="h-screen bg-slate-900 text-slate-100 flex flex-col">
+  <div class="h-screen bg-slate-900 text-slate-100 flex flex-col relative">
+    <div
+      v-if="isPrepTimerRunning"
+      class="absolute inset-0 z-[60] bg-black/95 flex flex-col items-center justify-center p-6"
+    >
+      <div class="text-slate-400 uppercase tracking-widest mb-4 animate-pulse">
+        Get Ready
+      </div>
+      <div class="text-[12rem] font-bold text-yellow-400 leading-none mb-12">
+        {{ prepTimerSeconds }}
+      </div>
+      <button
+        @click="skipPrep"
+        class="px-8 py-4 bg-slate-800 rounded-full text-white font-bold text-lg hover:bg-slate-700"
+      >
+        Skip / Start Now
+      </button>
+    </div>
+
     <div
       class="p-4 flex justify-between items-center border-b border-slate-800"
     >
@@ -528,6 +617,19 @@ const saveAndExit = async () => {
           placeholder="Add notes for this set..."
           class="w-full bg-transparent border-b border-slate-600 text-center text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 py-2 transition-colors"
         />
+      </div>
+
+      <div
+        v-if="nextStepInfo"
+        class="mb-8 text-center bg-slate-800/50 p-4 rounded-xl border border-slate-700/50"
+      >
+        <div class="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
+          Up Next
+        </div>
+        <div class="font-bold text-blue-300 text-lg">
+          {{ nextStepInfo.text }}
+        </div>
+        <div class="text-xs text-slate-500">{{ nextStepInfo.subtext }}</div>
       </div>
 
       <button
