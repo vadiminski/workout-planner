@@ -403,20 +403,28 @@ const saveAndExit = async () => {
   <div class="h-screen bg-slate-900 text-slate-100 flex flex-col relative">
     <div
       v-if="isPrepTimerRunning"
-      class="absolute inset-0 z-[60] bg-black/95 flex flex-col items-center justify-center p-6"
+      class="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center p-6"
     >
-      <div class="text-slate-400 uppercase tracking-widest mb-4 animate-pulse">
+      <div
+        class="text-slate-400 uppercase tracking-widest mb-4 animate-pulse font-bold"
+      >
         Get Ready
       </div>
-      <div class="text-[12rem] font-bold text-yellow-400 leading-none mb-8">
+
+      <div
+        class="text-[12rem] font-bold text-yellow-400 leading-none mb-8 tabular-nums"
+      >
         {{ prepTimerSeconds }}
       </div>
 
-      <div v-if="currentExercise" class="mb-12 text-center">
-        <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
+      <div
+        v-if="currentExercise"
+        class="mb-12 text-center bg-slate-800/50 p-6 rounded-2xl border border-slate-700 w-full max-w-sm"
+      >
+        <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-2">
           Up Next
         </div>
-        <div class="font-bold text-blue-300 text-2xl">
+        <div class="font-bold text-blue-300 text-3xl mb-1">
           {{ currentExercise.name }}
         </div>
         <div class="text-sm text-slate-400">Set 1</div>
@@ -424,7 +432,7 @@ const saveAndExit = async () => {
 
       <button
         @click="skipPrep"
-        class="px-8 py-4 bg-slate-800 rounded-full text-white font-bold text-lg hover:bg-slate-700"
+        class="px-8 py-4 bg-slate-800 rounded-full text-white font-bold text-lg hover:bg-slate-700 border border-slate-700 transition-colors"
       >
         Skip / Start Now
       </button>
