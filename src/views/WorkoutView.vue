@@ -65,9 +65,6 @@ const isLastSetOfWorkout = computed(() => {
 
 // "UP NEXT" Logic for Rest Screen
 const nextStepInfo = computed(() => {
-  // If we are currently resting, we need to know what comes *after* this rest.
-
-  // Case 1: More sets in current exercise
   if (!isLastSetOfExercise.value) {
     return {
       type: "Set",
@@ -78,7 +75,6 @@ const nextStepInfo = computed(() => {
     };
   }
 
-  // Case 2: Next Exercise
   if (currentExIndex.value < activeSession.value.length - 1) {
     const nextEx = activeSession.value[currentExIndex.value + 1];
     return {
@@ -88,7 +84,7 @@ const nextStepInfo = computed(() => {
     };
   }
 
-  return null; // Should not happen if isLastSetOfWorkout is handled correctly
+  return null;
 });
 
 // VALIDATION LOGIC
@@ -233,7 +229,6 @@ const startPrepTimer = () => {
     prepTimerSeconds.value--;
     if (prepTimerSeconds.value <= 0) {
       stopPrepTimer();
-      // Prep done -> Start the actual exercise timer
       startActiveTimer();
     }
   }, 1000);
@@ -293,7 +288,6 @@ const initActiveSet = (isFirstLoad = false) => {
   resetActiveTimer();
 
   if (currentSet.value && currentSet.value.type === "time") {
-    // If it's the very first exercise of the routine, show Prep Timer
     if (
       isFirstLoad &&
       currentExIndex.value === 0 &&
@@ -301,7 +295,6 @@ const initActiveSet = (isFirstLoad = false) => {
     ) {
       startPrepTimer();
     } else {
-      // Otherwise (mid-workout), just start the exercise timer (user just finished resting)
       startActiveTimer();
     }
   }
@@ -415,9 +408,20 @@ const saveAndExit = async () => {
       <div class="text-slate-400 uppercase tracking-widest mb-4 animate-pulse">
         Get Ready
       </div>
-      <div class="text-[12rem] font-bold text-yellow-400 leading-none mb-12">
+      <div class="text-[12rem] font-bold text-yellow-400 leading-none mb-8">
         {{ prepTimerSeconds }}
       </div>
+
+      <div v-if="currentExercise" class="mb-12 text-center">
+        <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
+          Up Next
+        </div>
+        <div class="font-bold text-blue-300 text-2xl">
+          {{ currentExercise.name }}
+        </div>
+        <div class="text-sm text-slate-400">Set 1</div>
+      </div>
+
       <button
         @click="skipPrep"
         class="px-8 py-4 bg-slate-800 rounded-full text-white font-bold text-lg hover:bg-slate-700"
@@ -686,9 +690,9 @@ const saveAndExit = async () => {
             >
               <div class="flex justify-between text-sm">
                 <span class="text-slate-500">Set {{ i + 1 }}</span>
-                <span class="text-white font-mono">
-                  {{ s.weight || 0 }}kg x {{ s.val }}
-                </span>
+                <span class="text-white font-mono"
+                  >{{ s.weight || 0 }}kg x {{ s.val }}</span
+                >
               </div>
               <div v-if="s.notes" class="text-xs text-slate-400 italic mt-1">
                 📝 {{ s.notes }}
@@ -706,7 +710,6 @@ const saveAndExit = async () => {
                 <span class="text-slate-500 text-xs w-6 pt-2"
                   >#{{ i + 1 }}</span
                 >
-
                 <div class="flex-1">
                   <label class="text-[10px] text-slate-500 uppercase"
                     >Weight</label
@@ -723,7 +726,6 @@ const saveAndExit = async () => {
                     <span class="text-slate-500 text-xs ml-1">kg</span>
                   </div>
                 </div>
-
                 <div class="flex-1">
                   <label class="text-[10px] text-slate-500 uppercase">{{
                     s.type === "time" ? "Time" : "Reps"
@@ -748,7 +750,6 @@ const saveAndExit = async () => {
                   </div>
                 </div>
               </div>
-
               <input
                 type="text"
                 v-model="s.notes"
