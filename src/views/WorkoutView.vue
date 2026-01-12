@@ -27,7 +27,7 @@ const activeTimerSeconds = ref(0);
 let activeInterval = null;
 const isActiveTimerRunning = ref(false);
 
-// PREP Timer (10s countdown before first time-based exercise)
+// PREP Timer
 const prepTimerSeconds = ref(10);
 const isPrepTimerRunning = ref(false);
 let prepInterval = null;
@@ -63,7 +63,7 @@ const isLastSetOfWorkout = computed(() => {
   );
 });
 
-// "UP NEXT" Logic for Rest Screen
+// "UP NEXT" Logic
 const nextStepInfo = computed(() => {
   if (!isLastSetOfExercise.value) {
     return {
@@ -74,7 +74,6 @@ const nextStepInfo = computed(() => {
       subtext: currentExercise.value.name,
     };
   }
-
   if (currentExIndex.value < activeSession.value.length - 1) {
     const nextEx = activeSession.value[currentExIndex.value + 1];
     return {
@@ -83,7 +82,6 @@ const nextStepInfo = computed(() => {
       subtext: "Set 1",
     };
   }
-
   return null;
 });
 
@@ -91,14 +89,11 @@ const nextStepInfo = computed(() => {
 const isCurrentSetValid = computed(() => {
   if (!currentSet.value) return false;
   const s = currentSet.value;
-  const isWeightValid = s.weight !== null && s.weight !== "";
-  let isValValid = false;
 
-  if (s.type === "time") {
-    isValValid = /^\d{1,2}:\d{2}$/.test(s.val);
-  } else {
-    isValValid = s.val !== null && s.val !== "" && s.val > 0;
-  }
+  if (s.type === "time") return true; // Timer handles it
+
+  const isWeightValid = s.weight !== null && s.weight !== "";
+  const isValValid = s.val !== null && s.val !== "" && s.val > 0;
   return isWeightValid && isValValid;
 });
 
@@ -169,14 +164,10 @@ const loadRoutineWithHistory = async (routineId) => {
       let initialVal = null;
 
       if (link.type === "time") {
-        if (pWeight !== undefined) initialWeight = pWeight;
-        else if (link.targetWeight !== undefined)
-          initialWeight = link.targetWeight;
-        else initialWeight = 0;
-
-        if (pVal !== undefined && pVal !== "-") initialVal = pVal;
-        else if (link.targetVal) initialVal = link.targetVal;
-        else initialVal = "01:00";
+        initialWeight =
+          pWeight !== undefined ? pWeight : link.targetWeight || 0;
+        initialVal =
+          pVal !== undefined && pVal !== "-" ? pVal : link.targetVal || "01:00";
       }
 
       return {
@@ -202,8 +193,6 @@ const loadRoutineWithHistory = async (routineId) => {
   });
 
   viewState.value = "active";
-
-  // Trigger prep logic for first exercise
   initActiveSet(true);
 };
 
@@ -220,11 +209,10 @@ const validateTimeInput = (event) => {
   currentSet.value.val = val;
 };
 
-// --- PREP TIMER LOGIC ---
+// --- TIMERS ---
 const startPrepTimer = () => {
   isPrepTimerRunning.value = true;
   prepTimerSeconds.value = 10;
-
   prepInterval = setInterval(() => {
     prepTimerSeconds.value--;
     if (prepTimerSeconds.value <= 0) {
@@ -244,11 +232,9 @@ const skipPrep = () => {
   startActiveTimer();
 };
 
-// --- ACTIVE TIMER LOGIC ---
 const startActiveTimer = () => {
   if (isActiveTimerRunning.value) return;
   isActiveTimerRunning.value = true;
-
   activeInterval = setInterval(() => {
     if (activeTimerSeconds.value > 0) {
       activeTimerSeconds.value--;
@@ -261,7 +247,6 @@ const startActiveTimer = () => {
 const stopActiveTimer = () => {
   if (activeInterval) clearInterval(activeInterval);
   isActiveTimerRunning.value = false;
-
   if (currentSet.value && !currentSet.value.val) {
     currentSet.value.val = currentSet.value.targetVal || "01:00";
   }
@@ -275,7 +260,6 @@ const toggleActiveTimer = () => {
 const resetActiveTimer = () => {
   if (activeInterval) clearInterval(activeInterval);
   isActiveTimerRunning.value = false;
-
   if (currentSet.value && currentSet.value.type === "time") {
     const target = currentSet.value.targetVal || "01:00";
     activeTimerSeconds.value = parseTimeToSeconds(target);
@@ -286,7 +270,6 @@ const resetActiveTimer = () => {
 
 const initActiveSet = (isFirstLoad = false) => {
   resetActiveTimer();
-
   if (currentSet.value && currentSet.value.type === "time") {
     if (
       isFirstLoad &&
@@ -300,7 +283,6 @@ const initActiveSet = (isFirstLoad = false) => {
   }
 };
 
-// --- NAVIGATION ---
 const finishSet = () => {
   if (activeInterval) clearInterval(activeInterval);
   isActiveTimerRunning.value = false;
@@ -330,12 +312,10 @@ const nextStep = () => {
   } else {
     currentSetIndex.value++;
   }
-
   viewState.value = "active";
   initActiveSet();
 };
 
-// --- REST TIMER ---
 const startRestTimer = () => {
   restRemaining.value = restTimerSeconds.value;
   restInterval = setInterval(() => {
@@ -410,13 +390,11 @@ const saveAndExit = async () => {
       >
         Get Ready
       </div>
-
       <div
         class="text-[12rem] font-bold text-yellow-400 leading-none mb-8 tabular-nums"
       >
         {{ prepTimerSeconds }}
       </div>
-
       <div
         v-if="currentExercise"
         class="mb-12 text-center bg-slate-800/50 p-6 rounded-2xl border border-slate-700 w-full max-w-sm"
@@ -429,7 +407,6 @@ const saveAndExit = async () => {
         </div>
         <div class="text-sm text-slate-400">Set 1</div>
       </div>
-
       <button
         @click="skipPrep"
         class="px-8 py-4 bg-slate-800 rounded-full text-white font-bold text-lg hover:bg-slate-700 border border-slate-700 transition-colors"
@@ -517,7 +494,7 @@ const saveAndExit = async () => {
         </div>
       </div>
 
-      <div class="space-y-6">
+      <div v-if="currentSet.type === 'reps'" class="space-y-6">
         <div class="grid grid-cols-2 gap-6">
           <div>
             <label class="block text-sm text-slate-400 mb-2 text-center"
@@ -531,49 +508,15 @@ const saveAndExit = async () => {
             />
           </div>
           <div>
-            <label class="block text-sm text-slate-400 mb-2 text-center">
-              {{ currentSet.type === "time" ? "Time (mm:ss)" : "Reps" }}
-            </label>
+            <label class="block text-sm text-slate-400 mb-2 text-center"
+              >Reps</label
+            >
             <input
-              v-if="currentSet.type === 'time'"
-              type="text"
-              inputmode="numeric"
-              v-model="currentSet.val"
-              @input="validateTimeInput"
-              placeholder="00:00"
-              class="w-full bg-slate-800 text-white text-3xl p-4 rounded-xl text-center outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
-            />
-            <input
-              v-else
               type="number"
               min="0"
               v-model="currentSet.val"
               placeholder="0"
               class="w-full bg-slate-800 text-white text-3xl p-4 rounded-xl text-center outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
-            />
-          </div>
-        </div>
-
-        <div class="grid grid-cols-3 gap-4">
-          <div class="col-span-1">
-            <label class="block text-xs text-slate-400 mb-1 text-center"
-              >RPE (0-10)</label
-            >
-            <input
-              type="number"
-              v-model="currentSet.rpe"
-              @input="validateRpe"
-              class="w-full bg-slate-800 text-yellow-400 text-xl p-3 rounded-lg text-center outline-none"
-              placeholder="-"
-            />
-          </div>
-          <div class="col-span-2">
-            <label class="block text-xs text-slate-400 mb-1">Notes</label>
-            <input
-              type="text"
-              v-model="currentSet.notes"
-              class="w-full bg-slate-800 text-slate-300 text-sm p-3.5 rounded-lg outline-none"
-              placeholder="Notes..."
             />
           </div>
         </div>
@@ -622,13 +565,33 @@ const saveAndExit = async () => {
         </button>
       </div>
 
-      <div class="w-full max-w-xs mb-8">
-        <input
-          type="text"
-          v-model="currentSet.notes"
-          placeholder="Add notes for this set..."
-          class="w-full bg-transparent border-b border-slate-600 text-center text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 py-2 transition-colors"
-        />
+      <div class="w-full max-w-sm mb-8 space-y-4">
+        <div class="flex gap-4">
+          <div class="w-24">
+            <label class="text-[10px] text-slate-500 uppercase block mb-1"
+              >RPE</label
+            >
+            <input
+              type="number"
+              v-model="currentSet.rpe"
+              @input="validateRpe"
+              placeholder="-"
+              class="w-full bg-slate-800 text-center text-yellow-400 p-2 rounded focus:outline-none focus:ring-1 focus:ring-yellow-500"
+            />
+          </div>
+
+          <div class="flex-1">
+            <label class="text-[10px] text-slate-500 uppercase block mb-1"
+              >Notes</label
+            >
+            <input
+              type="text"
+              v-model="currentSet.notes"
+              placeholder="How did it feel?"
+              class="w-full bg-slate-800 text-white p-2 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+        </div>
       </div>
 
       <div
@@ -657,7 +620,6 @@ const saveAndExit = async () => {
       class="flex-1 flex flex-col p-4 overflow-y-auto"
     >
       <h2 class="text-2xl font-bold text-white mb-4">Summary</h2>
-
       <div class="space-y-4 mb-20">
         <div
           v-for="ex in activeSession"
@@ -698,9 +660,14 @@ const saveAndExit = async () => {
             >
               <div class="flex justify-between text-sm">
                 <span class="text-slate-500">Set {{ i + 1 }}</span>
-                <span class="text-white font-mono"
-                  >{{ s.weight || 0 }}kg x {{ s.val }}</span
-                >
+                <div class="flex items-center gap-3">
+                  <span v-if="s.rpe" class="text-yellow-500 text-xs font-bold"
+                    >RPE: {{ s.rpe }}</span
+                  >
+                  <span class="text-white font-mono"
+                    >{{ s.weight || 0 }}kg x {{ s.val }}</span
+                  >
+                </div>
               </div>
               <div v-if="s.notes" class="text-xs text-slate-400 italic mt-1">
                 📝 {{ s.notes }}
@@ -758,12 +725,25 @@ const saveAndExit = async () => {
                   </div>
                 </div>
               </div>
-              <input
-                type="text"
-                v-model="s.notes"
-                placeholder="Add notes..."
-                class="w-full bg-transparent border-b border-slate-700 text-xs text-slate-300 p-1 focus:border-blue-500 outline-none"
-              />
+
+              <div class="flex gap-2">
+                <div class="w-16">
+                  <input
+                    type="number"
+                    v-model="s.rpe"
+                    placeholder="RPE"
+                    class="w-full bg-transparent border-b border-slate-700 text-xs text-yellow-400 text-center p-1 focus:border-yellow-500 outline-none"
+                  />
+                </div>
+                <div class="flex-1">
+                  <input
+                    type="text"
+                    v-model="s.notes"
+                    placeholder="Add notes..."
+                    class="w-full bg-transparent border-b border-slate-700 text-xs text-slate-300 p-1 focus:border-blue-500 outline-none"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>

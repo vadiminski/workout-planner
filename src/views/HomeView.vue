@@ -31,25 +31,27 @@ const loadHistory = async () => {
   const logs = await db.workoutLogs
     .orderBy("startTime")
     .reverse()
-    .limit(10) // Limit to last 10 for performance
+    .limit(10)
     .toArray();
 
   // Enrich logs with details
   history.value = await Promise.all(
     logs.map(async (workout) => {
-      // Get sets to calculate stats
+      // 1. Get Set Count
       const sets = await db.setLogs
         .where("workoutLogId")
         .equals(workout.id)
         .toArray();
 
-      // Get unique exercise names for summary
-      const uniqueExerciseIds = [...new Set(sets.map((s) => s.exerciseId))];
-      const exercises = await db.exercises
-        .where("id")
-        .anyOf(uniqueExerciseIds)
-        .toArray();
-      const exerciseNames = exercises.map((e) => e.name).join(", ");
+      // 2. Get Routine Name
+      let routineLabel = "Unknown Workout";
+      if (workout.routineId) {
+        const routine = await db.routines.get(workout.routineId);
+        routineLabel = routine ? routine.name : "Deleted Routine";
+      } else {
+        // Fallback for workouts without a routine ID (future proofing)
+        routineLabel = "Custom Session";
+      }
 
       return {
         ...workout,
@@ -58,7 +60,7 @@ const loadHistory = async () => {
           month: "short",
           day: "numeric",
         }),
-        exerciseSummary: exerciseNames || "No exercises logged",
+        routineName: routineLabel, // Changed from exerciseSummary
         totalSets: sets.length,
       };
     })
@@ -176,8 +178,8 @@ const startRoutine = (routineId) => {
               {{ getDuration(item.startTime, item.endTime) }}
             </span>
           </div>
-          <div class="text-sm text-blue-300 truncate mb-1">
-            {{ item.exerciseSummary }}
+          <div class="text-sm text-blue-300 truncate mb-1 font-bold">
+            {{ item.routineName }}
           </div>
           <div class="text-xs text-slate-500">
             {{ item.totalSets }} Sets performed
