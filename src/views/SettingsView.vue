@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from "vue";
-import { db, seedDatabase } from "../db"; // Import seedDatabase to ensure clean restart
+import { db } from "../db";
 import { useRouter } from "vue-router";
 
 const router = useRouter();
@@ -81,7 +81,7 @@ const handleFileUpload = async (event) => {
       );
 
       statusMsg.value = "Import successful! Reloading...";
-      setTimeout(() => window.location.reload(), 1000); // Reload to refresh state
+      setTimeout(() => window.location.reload(), 1000);
     } catch (err) {
       console.error(err);
       statusMsg.value = "Import failed. Invalid JSON?";
@@ -90,23 +90,40 @@ const handleFileUpload = async (event) => {
   reader.readAsText(file);
 };
 
-// 3. DANGER: WIPE DATABASE
-const wipeDatabase = async () => {
+// 3. DANGER: WIPE HISTORY ONLY
+const wipeHistoryOnly = async () => {
   if (
     !confirm(
-      "⚠️ ARE YOU SURE?\n\nThis will permanently delete ALL workouts, routines, and exercises.\n\nThis cannot be undone."
+      "🧹 Clear Workout History?\n\nThis will delete all your past logs, but KEEP your Routines and Exercises."
     )
   ) {
     return;
   }
 
   try {
-    // Delete the entire database
-    await db.delete();
+    await db.transaction("rw", db.workoutLogs, db.setLogs, async () => {
+      await db.workoutLogs.clear();
+      await db.setLogs.clear();
+    });
+    statusMsg.value = "History cleared successfully.";
+  } catch (err) {
+    console.error(err);
+    statusMsg.value = "Error clearing history.";
+  }
+};
 
-    // Reload the page.
-    // On reload, 'db.js' will re-initialize the DB structure
-    // and 'App.vue' will call seedDatabase() to give you the fresh default exercises.
+// 4. DANGER: WIPE EVERYTHING
+const wipeDatabase = async () => {
+  if (
+    !confirm(
+      "⚠️ DESTROY EVERYTHING?\n\nThis will permanently delete ALL workouts, routines, and exercises.\n\nThis cannot be undone."
+    )
+  ) {
+    return;
+  }
+
+  try {
+    await db.delete();
     window.location.reload();
   } catch (err) {
     console.error("Could not delete DB:", err);
@@ -158,20 +175,31 @@ const wipeDatabase = async () => {
         </button>
       </div>
 
-      <div class="mt-12 pt-6 border-t border-slate-700">
+      <div class="mt-12 pt-6 border-t border-slate-700 space-y-4">
         <h3
           class="text-red-500 font-bold mb-2 text-sm uppercase tracking-wider"
         >
           Danger Zone
         </h3>
+
+        <button
+          @click="wipeHistoryOnly"
+          class="w-full border border-orange-700 bg-orange-900/20 text-orange-500 hover:bg-orange-900/40 py-3 rounded font-bold transition-colors"
+        >
+          🧹 Clear History Only
+        </button>
+        <p class="text-center text-xs text-slate-500 !mt-1">
+          Deletes logs. Keeps Routines & Exercises.
+        </p>
+
         <button
           @click="wipeDatabase"
-          class="w-full border border-red-900 bg-red-900/20 text-red-500 hover:bg-red-900/40 py-3 rounded font-bold transition-colors"
+          class="w-full border border-red-900 bg-red-900/20 text-red-500 hover:bg-red-900/40 py-3 rounded font-bold transition-colors mt-4"
         >
-          💣 Wipe Database & Reset
+          💣 Destroy Everything
         </button>
-        <p class="text-center text-xs text-slate-500 mt-2">
-          Deletes everything and restores default exercises.
+        <p class="text-center text-xs text-slate-500 !mt-1">
+          Deletes EVERYTHING. Cannot be undone.
         </p>
       </div>
 
