@@ -197,8 +197,6 @@ const startActiveTimer = () => {
     if (activeTimerSeconds.value > 0) {
       activeTimerSeconds.value--; // Countdown
     } else {
-      // AUTO-FINISH LOGIC:
-      // When timer hits 0, behave exactly as if "Done & Rest" was clicked.
       finishSet();
     }
   }, 1000);
@@ -208,7 +206,6 @@ const stopActiveTimer = () => {
   if (activeInterval) clearInterval(activeInterval);
   isActiveTimerRunning.value = false;
 
-  // Auto-fill input with TARGET value
   if (currentSet.value && !currentSet.value.val) {
     currentSet.value.val = currentSet.value.targetVal || "01:00";
   }
@@ -223,7 +220,6 @@ const resetActiveTimer = () => {
   if (activeInterval) clearInterval(activeInterval);
   isActiveTimerRunning.value = false;
 
-  // Initialize from TARGET VAL
   if (currentSet.value && currentSet.value.type === "time") {
     const target = currentSet.value.targetVal || "01:00";
     activeTimerSeconds.value = parseTimeToSeconds(target);
@@ -233,7 +229,7 @@ const resetActiveTimer = () => {
 };
 
 const initActiveSet = () => {
-  resetActiveTimer(); // Sets timer to Target
+  resetActiveTimer();
   if (currentSet.value && currentSet.value.type === "time") {
     startActiveTimer();
   }
@@ -241,11 +237,9 @@ const initActiveSet = () => {
 
 // --- NAVIGATION ---
 const finishSet = () => {
-  // IMPORTANT: Stop the active timer interval immediately
   if (activeInterval) clearInterval(activeInterval);
   isActiveTimerRunning.value = false;
 
-  // Ensure the input field has the correct value before we leave
   if (currentSet.value && !currentSet.value.val) {
     currentSet.value.val = currentSet.value.targetVal || "01:00";
   }
@@ -255,7 +249,6 @@ const finishSet = () => {
   if (isLastSetOfWorkout.value) {
     viewState.value = "summary";
   } else {
-    // Start Rest
     const restStr = currentExercise.value.restTimeStr;
     const seconds = parseTimeToSeconds(restStr);
     restTimerSeconds.value = seconds;
@@ -274,7 +267,7 @@ const nextStep = () => {
   }
 
   viewState.value = "active";
-  initActiveSet(); // Auto-start next timer
+  initActiveSet();
 };
 
 // --- REST TIMER ---
@@ -435,7 +428,6 @@ const saveAndExit = async () => {
               class="w-full bg-slate-800 text-white text-3xl p-4 rounded-xl text-center outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
             />
           </div>
-
           <div>
             <label class="block text-sm text-slate-400 mb-2 text-center">
               {{ currentSet.type === "time" ? "Time (mm:ss)" : "Reps" }}
@@ -540,6 +532,10 @@ const saveAndExit = async () => {
       class="flex-1 flex flex-col p-4 overflow-y-auto"
     >
       <h2 class="text-2xl font-bold text-white mb-4">Summary</h2>
+      <p class="text-sm text-slate-400 mb-6">
+        Review & edit your workout before saving.
+      </p>
+
       <div class="space-y-4 mb-20">
         <div
           v-for="ex in activeSession"
@@ -547,15 +543,44 @@ const saveAndExit = async () => {
           class="bg-slate-800 p-4 rounded-lg"
         >
           <h3 class="font-bold text-blue-300 mb-2">{{ ex.name }}</h3>
+
           <div
             v-for="(s, i) in ex.sets"
             :key="i"
-            class="flex justify-between text-sm py-1 border-b border-slate-700/50"
+            class="flex items-center gap-2 py-2 border-b border-slate-700/50 last:border-0"
           >
-            <span class="text-slate-400">Set {{ i + 1 }}</span>
-            <span class="text-white font-mono">
-              {{ s.weight || 0 }}kg x {{ s.val }}
-            </span>
+            <span class="text-slate-400 text-sm w-8">#{{ i + 1 }}</span>
+
+            <div class="flex-1 flex items-center bg-slate-900 rounded px-2">
+              <input
+                type="number"
+                v-model="s.weight"
+                class="w-full bg-transparent text-white text-right p-1 outline-none font-mono"
+                placeholder="0"
+              />
+              <span class="text-slate-500 text-xs ml-1">kg</span>
+            </div>
+
+            <div class="flex-1 flex items-center bg-slate-900 rounded px-2">
+              <input
+                v-if="s.type === 'time'"
+                type="text"
+                v-model="s.val"
+                class="w-full bg-transparent text-white text-right p-1 outline-none font-mono"
+                placeholder="00:00"
+              />
+              <input
+                v-else
+                type="number"
+                v-model="s.val"
+                class="w-full bg-transparent text-white text-right p-1 outline-none font-mono"
+                placeholder="0"
+              />
+
+              <span class="text-slate-500 text-xs ml-1">{{
+                s.type === "time" ? "" : "reps"
+              }}</span>
+            </div>
           </div>
         </div>
       </div>
