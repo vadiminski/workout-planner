@@ -10,6 +10,7 @@ const routineName = ref("");
 const isEditMode = computed(() => !!route.params.id);
 
 // Main list of exercises in the editor
+// Structure: { ..., rpe: 8 }
 const exercises = ref([]);
 
 // --- LIBRARY MODAL STATE ---
@@ -18,7 +19,7 @@ const libraryExercises = ref([]);
 const searchQuery = ref("");
 
 onMounted(async () => {
-  // 1. Load the "Library" (All unique exercises ever saved)
+  // 1. Load the "Library"
   libraryExercises.value = await db.exercises.toArray();
 
   // 2. Load Routine if in Edit Mode
@@ -44,6 +45,7 @@ onMounted(async () => {
         target: link.targetVal || (link.type === "time" ? "01:00" : 10),
         type: link.type || "reps",
         rest: link.targetRest || "01:30",
+        rpe: link.targetRpe || 8, // Load RPE
       });
     }
   }
@@ -62,6 +64,7 @@ const addEmptyExercise = () => {
     target: 10,
     type: "reps",
     rest: "01:30",
+    rpe: 8, // Default RPE
   });
 };
 
@@ -78,26 +81,23 @@ const filteredLibrary = computed(() => {
 });
 
 const openLibrary = async () => {
-  // Refresh library in case new ones were added recently
   libraryExercises.value = await db.exercises.toArray();
   showLibrary.value = true;
 };
 
 const importExercise = (ex) => {
-  // Create a new instance based on the library data
   exercises.value.push({
     tempId: Date.now() + Math.random(),
-    id: ex.id, // Keep the DB ID so we link correctly
+    id: ex.id,
     name: ex.name,
     description: ex.description || "",
-    // Defaults for the new routine (User edits these)
     sets: 3,
     weight: 0,
     target: 10,
     type: "reps",
     rest: "01:30",
+    rpe: 8, // Default RPE for imported exercise
   });
-  // Note: We don't close the modal automatically, allowing multi-select.
 };
 
 // --- TYPE SWITCHING & INPUTS ---
@@ -130,6 +130,10 @@ const isFormValid = computed(() => {
     if (!ex.name.trim()) return false;
     if (ex.sets < 1) return false;
     if (!timeRegex.test(ex.rest)) return false;
+
+    // RPE Validation
+    if (ex.rpe < 0 || ex.rpe > 10) return false;
+
     if (ex.type === "time") {
       return timeRegex.test(ex.target);
     } else {
@@ -163,7 +167,6 @@ const saveRoutine = async () => {
       for (const ex of exercises.value) {
         let exerciseId = ex.id;
 
-        // Ensure exercise exists or update description
         const existing = await db.exercises
           .where("name")
           .equals(ex.name.trim())
@@ -189,6 +192,7 @@ const saveRoutine = async () => {
           targetVal: ex.target,
           type: ex.type,
           targetRest: ex.rest,
+          targetRpe: parseFloat(ex.rpe), // Save RPE
         });
       }
 
@@ -300,7 +304,7 @@ const deleteRoutine = async () => {
             />
           </div>
 
-          <div>
+          <div class="col-span-2">
             <label class="text-xs text-slate-500">
               {{ ex.type === "reps" ? "Target Reps" : "Target Time" }}
             </label>
@@ -324,18 +328,32 @@ const deleteRoutine = async () => {
             />
           </div>
 
-          <div>
-            <label class="text-xs text-slate-500">Rest (mm:ss)</label>
-            <input
-              type="text"
-              placeholder="01:30"
-              :value="ex.rest"
-              @input="(e) => validateTimeInput(e, index, 'rest')"
-              class="w-full bg-slate-900 p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500"
-              :class="{
-                'border border-red-500': !/^\d{1,2}:\d{2}$/.test(ex.rest),
-              }"
-            />
+          <div class="grid grid-cols-2 gap-3 col-span-2">
+            <div>
+              <label class="text-xs text-slate-500">Rest (mm:ss)</label>
+              <input
+                type="text"
+                placeholder="01:30"
+                :value="ex.rest"
+                @input="(e) => validateTimeInput(e, index, 'rest')"
+                class="w-full bg-slate-900 p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                :class="{
+                  'border border-red-500': !/^\d{1,2}:\d{2}$/.test(ex.rest),
+                }"
+              />
+            </div>
+
+            <div>
+              <label class="text-xs text-slate-500">Target RPE (0-10)</label>
+              <input
+                type="number"
+                min="0"
+                max="10"
+                step="0.5"
+                v-model="ex.rpe"
+                class="w-full bg-slate-900 p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500 text-yellow-500 font-bold"
+              />
+            </div>
           </div>
         </div>
       </div>
