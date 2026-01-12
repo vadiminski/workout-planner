@@ -9,10 +9,19 @@ const route = useRoute();
 const routineName = ref("");
 const isEditMode = computed(() => !!route.params.id);
 
-// Structure: { tempId, id?, name, description, sets, weight, target, type, rest }
+// Main list of exercises in the editor
 const exercises = ref([]);
 
+// --- LIBRARY MODAL STATE ---
+const showLibrary = ref(false);
+const libraryExercises = ref([]);
+const searchQuery = ref("");
+
 onMounted(async () => {
+  // 1. Load the "Library" (All unique exercises ever saved)
+  libraryExercises.value = await db.exercises.toArray();
+
+  // 2. Load Routine if in Edit Mode
   if (isEditMode.value) {
     const routineId = parseInt(route.params.id);
     const routine = await db.routines.get(routineId);
@@ -23,7 +32,6 @@ onMounted(async () => {
       .equals(routineId)
       .toArray();
 
-    // Hydrate existing data
     for (const link of links) {
       const exData = await db.exercises.get(link.exerciseId);
       exercises.value.push({
@@ -35,15 +43,17 @@ onMounted(async () => {
         weight: link.targetWeight || 0,
         target: link.targetVal || (link.type === "time" ? "01:00" : 10),
         type: link.type || "reps",
-        rest: link.targetRest || "01:30", // Default 90s
+        rest: link.targetRest || "01:30",
       });
     }
   }
 });
 
-const addExercise = () => {
+// --- ACTIONS ---
+
+const addEmptyExercise = () => {
   exercises.value.push({
-    tempId: Date.now(),
+    tempId: Date.now() + Math.random(),
     id: null,
     name: "",
     description: "",
@@ -51,7 +61,7 @@ const addExercise = () => {
     weight: 0,
     target: 10,
     type: "reps",
-    rest: "01:30", // Default Rest
+    rest: "01:30",
   });
 };
 
@@ -59,7 +69,38 @@ const removeExercise = (index) => {
   exercises.value.splice(index, 1);
 };
 
-// --- TYPE SWITCHING ---
+// --- LIBRARY LOGIC ---
+
+const filteredLibrary = computed(() => {
+  if (!searchQuery.value) return libraryExercises.value;
+  const q = searchQuery.value.toLowerCase();
+  return libraryExercises.value.filter((e) => e.name.toLowerCase().includes(q));
+});
+
+const openLibrary = async () => {
+  // Refresh library in case new ones were added recently
+  libraryExercises.value = await db.exercises.toArray();
+  showLibrary.value = true;
+};
+
+const importExercise = (ex) => {
+  // Create a new instance based on the library data
+  exercises.value.push({
+    tempId: Date.now() + Math.random(),
+    id: ex.id, // Keep the DB ID so we link correctly
+    name: ex.name,
+    description: ex.description || "",
+    // Defaults for the new routine (User edits these)
+    sets: 3,
+    weight: 0,
+    target: 10,
+    type: "reps",
+    rest: "01:30",
+  });
+  // Note: We don't close the modal automatically, allowing multi-select.
+};
+
+// --- TYPE SWITCHING & INPUTS ---
 const setType = (index, newType) => {
   const ex = exercises.value[index];
   if (newType === "time" && !String(ex.target).includes(":")) {
@@ -71,19 +112,14 @@ const setType = (index, newType) => {
   ex.type = newType;
 };
 
-// --- INPUT MASKING (Generic for Target Time AND Rest Time) ---
 const validateTimeInput = (event, index, field) => {
   let val = event.target.value;
-  // Allow digits and colon only
   val = val.replace(/[^0-9:]/g, "");
-  // Limit length to 5 chars (00:00)
   if (val.length > 5) val = val.slice(0, 5);
-
-  // Dynamic assignment based on field ('target' or 'rest')
   exercises.value[index][field] = val;
 };
 
-// --- VALIDATION ---
+// --- VALIDATION & SAVE ---
 const isFormValid = computed(() => {
   if (!routineName.value) return false;
   if (exercises.value.length === 0) return false;
@@ -91,15 +127,9 @@ const isFormValid = computed(() => {
   const timeRegex = /^\d{1,2}:\d{2}$/;
 
   return exercises.value.every((ex) => {
-    // Name required
     if (!ex.name.trim()) return false;
-    // Sets > 0
     if (ex.sets < 1) return false;
-
-    // Check Rest Time Format
     if (!timeRegex.test(ex.rest)) return false;
-
-    // Check Target based on Type
     if (ex.type === "time") {
       return timeRegex.test(ex.target);
     } else {
@@ -133,7 +163,7 @@ const saveRoutine = async () => {
       for (const ex of exercises.value) {
         let exerciseId = ex.id;
 
-        // Find or Create Exercise in Library
+        // Ensure exercise exists or update description
         const existing = await db.exercises
           .where("name")
           .equals(ex.name.trim())
@@ -158,7 +188,7 @@ const saveRoutine = async () => {
           targetWeight: parseFloat(ex.weight),
           targetVal: ex.target,
           type: ex.type,
-          targetRest: ex.rest, // Save the rest time
+          targetRest: ex.rest,
         });
       }
 
@@ -181,7 +211,7 @@ const deleteRoutine = async () => {
 </script>
 
 <template>
-  <div class="p-4 min-h-screen pb-32 text-slate-100">
+  <div class="p-4 min-h-screen pb-32 text-slate-100 relative">
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-xl font-bold">
         {{ isEditMode ? "Edit Routine" : "New Routine" }}
@@ -274,7 +304,6 @@ const deleteRoutine = async () => {
             <label class="text-xs text-slate-500">
               {{ ex.type === "reps" ? "Target Reps" : "Target Time" }}
             </label>
-
             <input
               v-if="ex.type === 'reps'"
               type="number"
@@ -282,7 +311,6 @@ const deleteRoutine = async () => {
               v-model="ex.target"
               class="w-full bg-slate-900 p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-500"
             />
-
             <input
               v-else
               type="text"
@@ -312,12 +340,72 @@ const deleteRoutine = async () => {
         </div>
       </div>
 
-      <button
-        @click="addExercise"
-        class="w-full py-3 border-2 border-dashed border-slate-700 rounded-lg text-slate-400 hover:text-white hover:border-slate-500 transition-colors font-bold"
+      <div class="flex gap-3">
+        <button
+          @click="addEmptyExercise"
+          class="flex-1 py-3 border-2 border-dashed border-slate-700 rounded-lg text-slate-400 hover:text-white hover:border-slate-500 transition-colors font-bold text-sm"
+        >
+          + Create New
+        </button>
+        <button
+          @click="openLibrary"
+          class="flex-1 py-3 bg-slate-800 rounded-lg text-blue-400 hover:bg-slate-700 transition-colors font-bold text-sm border border-slate-700"
+        >
+          Import from Library
+        </button>
+      </div>
+    </div>
+
+    <div
+      v-if="showLibrary"
+      class="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+    >
+      <div
+        class="bg-slate-900 w-full max-w-md h-[80vh] rounded-xl flex flex-col border border-slate-700 shadow-2xl"
       >
-        + Add Exercise
-      </button>
+        <div
+          class="p-4 border-b border-slate-800 flex justify-between items-center"
+        >
+          <h3 class="font-bold text-white">Select Exercises</h3>
+          <button @click="showLibrary = false" class="text-slate-400 text-sm">
+            Done
+          </button>
+        </div>
+
+        <div class="p-4">
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search exercises..."
+            class="w-full bg-slate-800 text-white p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+            autofocus
+          />
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4 pt-0 space-y-2">
+          <div
+            v-for="item in filteredLibrary"
+            :key="item.id"
+            @click="importExercise(item)"
+            class="bg-slate-800 p-3 rounded-lg border border-slate-700 flex justify-between items-center cursor-pointer hover:border-blue-500 active:bg-slate-700"
+          >
+            <div>
+              <div class="font-bold text-slate-200">{{ item.name }}</div>
+              <div class="text-xs text-slate-500 truncate max-w-[200px]">
+                {{ item.description }}
+              </div>
+            </div>
+            <div class="text-blue-400 font-bold text-xl">+</div>
+          </div>
+
+          <div
+            v-if="filteredLibrary.length === 0"
+            class="text-center text-slate-500 mt-8"
+          >
+            No matching exercises found.
+          </div>
+        </div>
+      </div>
     </div>
 
     <div
